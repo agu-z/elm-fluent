@@ -37,7 +37,490 @@ expectErrorCode code result =
 suite : Test
 suite =
     describe "Parser"
-        [ describe "Identifier"
+        [ describe "Entry"
+            [ describe "Message"
+                [ test "parses pattern" <|
+                    \_ ->
+                        "welcome-home = Welcome home, {$name}!"
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Message Nothing
+                                        (P.Identifier "welcome-home")
+                                        (P.ValueMessage
+                                            (P.Pattern
+                                                (P.TextElement "Welcome home, ")
+                                                [ P.InlineExpression <|
+                                                    P.VariableReference <|
+                                                        P.Identifier "name"
+                                                , P.TextElement "!"
+                                                ]
+                                            )
+                                            []
+                                        )
+                                )
+                , test "ignores spaces around equal sign" <|
+                    \_ ->
+                        "hi    =  Hi"
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Message Nothing
+                                        (P.Identifier "hi")
+                                        (P.ValueMessage
+                                            (P.Pattern (P.TextElement "Hi") [])
+                                            []
+                                        )
+                                )
+                , test "supports attributes in addition to value" <|
+                    \_ ->
+                        "submit-button = Submit \n.aria-label = Submit form"
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Message Nothing
+                                        (P.Identifier "submit-button")
+                                        (P.ValueMessage
+                                            (P.Pattern (P.TextElement "Submit") [])
+                                            [ P.Attribute (P.Identifier "aria-label") (P.Pattern (P.TextElement "Submit form") []) ]
+                                        )
+                                )
+                , test "supports standalone attributes" <|
+                    \_ ->
+                        "submit-button = \n  .aria-label = Submit form"
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Message Nothing
+                                        (P.Identifier "submit-button")
+                                        (P.AttributeMessage
+                                            (P.Attribute (P.Identifier "aria-label") (P.Pattern (P.TextElement "Submit form") []))
+                                            []
+                                        )
+                                )
+                , test "fails if no value or attributes are provided" <|
+                    \_ ->
+                        "submit-button = \n \n"
+                            |> Parser.run P.entry
+                            |> expectErrorCode "E0005"
+                ]
+            , describe "Term"
+                [ test "supports patterns" <|
+                    \_ ->
+                        "-brand-name = Fluent"
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Term Nothing
+                                        (P.Identifier "brand-name")
+                                        (P.Pattern (P.TextElement "Fluent") [])
+                                        []
+                                )
+                , test "supports attributes" <|
+                    \_ ->
+                        "-company = Google\n.parent = Alphabet\n  .full = Alphabet Inc."
+                            |> Parser.run P.entry
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Term Nothing
+                                        (P.Identifier "company")
+                                        (P.Pattern (P.TextElement "Google") [])
+                                        [ P.Attribute (P.Identifier "parent")
+                                            (P.Pattern (P.TextElement "Alphabet") [])
+                                        , P.Attribute (P.Identifier "full")
+                                            (P.Pattern (P.TextElement "Alphabet Inc.") [])
+                                        ]
+                                )
+                , test "requires pattern even if attribute is provided" <|
+                    \_ ->
+                        "-company =\n.parent = Alphabet\n  .full = Alphabet Inc."
+                            |> Parser.run P.entry
+                            |> Expect.err
+                ]
+            , test "supports comments" <|
+                \_ ->
+                    "# Say hello to user\nhi = Hi"
+                        |> Parser.run P.entry
+                        |> Expect.equal
+                            (Ok <|
+                                P.Message (Just "Say hello to user")
+                                    (P.Identifier "hi")
+                                    (P.ValueMessage
+                                        (P.Pattern (P.TextElement "Hi") [])
+                                        []
+                                    )
+                            )
+            , test "joins comment lines" <|
+                \_ ->
+                    "# Say hello to user\n# in a casual manner,\n#  without getting too formal\n-hi = Hi"
+                        |> Parser.run P.entry
+                        |> Expect.equal
+                            (Ok <|
+                                P.Term (Just "Say hello to user\nin a casual manner,\n without getting too formal")
+                                    (P.Identifier "hi")
+                                    (P.Pattern (P.TextElement "Hi") [])
+                                    []
+                            )
+            , describe "ResourceComment"
+                [ test "parses single line" <|
+                    \_ ->
+                        "### Resource Comment"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.ResourceComment "Resource Comment")
+                , test "parses multiple lines" <|
+                    \_ ->
+                        "### The quick brown fox\n### jumped over the lazy dog"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.ResourceComment "The quick brown fox\njumped over the lazy dog")
+                ]
+            , describe "GroupComment"
+                [ test "parses single line" <|
+                    \_ ->
+                        "## Group Comment"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.GroupComment "Group Comment")
+                , test "parses multiple lines" <|
+                    \_ ->
+                        "## The quick brown fox\n## jumped over the lazy dog"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.GroupComment "The quick brown fox\njumped over the lazy dog")
+                ]
+            , describe "StandloneComment"
+                [ test "parses single line" <|
+                    \_ ->
+                        "# Standalone Comment"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.StandaloneComment "Standalone Comment")
+                , test "parses multiple lines" <|
+                    \_ ->
+                        "# The quick brown fox\n# jumped over the lazy dog"
+                            |> Parser.run P.entry
+                            |> Expect.equal (Ok <| P.StandaloneComment "The quick brown fox\njumped over the lazy dog")
+                ]
+            ]
+        , describe "Pattern" <|
+            let
+                justText : String -> Result e P.Pattern
+                justText value =
+                    Ok <| P.Pattern (P.TextElement value) []
+            in
+            [ test "fails if empty" <|
+                \_ ->
+                    ""
+                        |> failsToParse P.requiredPattern
+            , test "fails if only whitespace" <|
+                \_ ->
+                    "\n\n  \n"
+                        |> failsToParse P.requiredPattern
+            , test "parses simple text" <|
+                \_ ->
+                    "Hello, World!"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "Hello, World!")
+            , test "keeps newlines that are directly followed by another newline" <|
+                \_ ->
+                    "lorem\n\n\n ipsum"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "lorem\n\n\nipsum")
+            , test "parses two lines" <|
+                \_ ->
+                    "lorem\n ipsum"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "lorem\nipsum")
+            , test "parses multiple aligned lines" <|
+                \_ ->
+                    "lorem\n ipsum\n dolor"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "lorem\nipsum\ndolor")
+            , test "ignore spaces and newlines at the end" <|
+                \_ ->
+                    "Hello, World! \n\n  "
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "Hello, World!")
+            , test "ignores all newlines before the first element" <|
+                \_ ->
+                    "\n\n  \n lorem\n ipsum"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "lorem\nipsum")
+            , test "ignore spaces in lines containing only spaces" <|
+                \_ ->
+                    "\n  lorem\n    \n  ipsum"
+                        |> Parser.run P.requiredPattern
+                        |> Expect.equal (justText "lorem\n\nipsum")
+            , describe "Special"
+                [ test "stops if there is no space after newline" <|
+                    \_ ->
+                        "lorem\nipsum"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "lorem")
+                , test "stops when it finds a closing brace after a newline" <|
+                    \_ ->
+                        "lorem\n }"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "lorem")
+                , test "stops when it finds a square bracket (variant) after a newline" <|
+                    \_ ->
+                        "lorem\n [1, 2, 3"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "lorem")
+                , test "supports square brackets in the middle of a line" <|
+                    \_ ->
+                        "\n I'm tired [sigh]."
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "I'm tired [sigh].")
+                , test "supports starting with a square bracket on the first line" <|
+                    \_ ->
+                        "[1, 2, 3]" |> Parser.run P.requiredPattern |> Expect.equal (justText "[1, 2, 3]")
+                , test "stops when it finds a star (default variant) after a newline" <|
+                    \_ ->
+                        "Shopping list:\n * Milk\n * Eggs"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "Shopping list:")
+                , test "supports stars in the middle of a line" <|
+                    \_ ->
+                        "\n That was **amazing**."
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "That was **amazing**.")
+                , test "supports starting with star on the first line" <|
+                    \_ ->
+                        "*magic*" |> Parser.run P.requiredPattern |> Expect.equal (justText "*magic*")
+                , test "stops when it finds a period (attribute) after a newline" <|
+                    \_ ->
+                        "lorem\n .txt"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "lorem")
+                , test "supports periods in the middle of a line" <|
+                    \_ ->
+                        "\n Hi. How are you?"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "Hi. How are you?")
+                , test "supports starting with period on the first line" <|
+                    \_ ->
+                        ".txt" |> Parser.run P.requiredPattern |> Expect.equal (justText ".txt")
+                ]
+            , describe "Indentation"
+                [ test "starting in first line" <|
+                    \_ ->
+                        "lorem\n ipsum\n  dolor"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText "lorem\nipsum\n dolor")
+                , test "starting in second line" <|
+                    \_ ->
+                        "\n    lorem\n    ipsum\n     dolor\n   sit"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal (justText " lorem\n ipsum\n  dolor\nsit")
+                , test "with placeables" <|
+                    \_ ->
+                        "\n    You have\n      {$count}\n      messages"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Pattern (P.TextElement "You have\n  ")
+                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
+                                        , P.TextElement "\n  messages"
+                                        ]
+                                )
+                ]
+            , describe "Placeable" <|
+                [ test "parses inside braces" <|
+                    \_ ->
+                        "{$name}"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Pattern
+                                        (P.InlineExpression <|
+                                            P.VariableReference <|
+                                                P.Identifier "name"
+                                        )
+                                        []
+                                )
+                , test "surrounding spaces are allowed" <|
+                    \_ ->
+                        "{ $name   }"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Pattern
+                                        (P.InlineExpression <|
+                                            P.VariableReference <|
+                                                P.Identifier "name"
+                                        )
+                                        []
+                                )
+                , test "supports braces inside string literals" <|
+                    \_ ->
+                        "{\"{}\"}"
+                            |> Parser.run P.requiredPattern
+                            |> Expect.equal
+                                (Ok <|
+                                    P.Pattern
+                                        (P.InlineExpression <|
+                                            P.Literal <|
+                                                P.String "{}"
+                                        )
+                                        []
+                                )
+                , describe "SelectExpression"
+                    [ test "parses" <|
+                        \_ ->
+                            "{$count ->\n  [zero] You have no messages\n  [one] You have a message\n  *[other] You have {$count} messages\n}"
+                                |> Parser.run P.requiredPattern
+                                |> Expect.equal
+                                    (Ok <|
+                                        P.Pattern
+                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
+                                                [ P.Variant
+                                                    (P.Identifier "zero")
+                                                    (P.Pattern (P.TextElement "You have no messages") [])
+                                                , P.Variant
+                                                    (P.Identifier "one")
+                                                    (P.Pattern (P.TextElement "You have a message") [])
+                                                ]
+                                                (P.Variant
+                                                    (P.Identifier "other")
+                                                    (P.Pattern
+                                                        (P.TextElement "You have ")
+                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
+                                                        , P.TextElement " messages"
+                                                        ]
+                                                    )
+                                                )
+                                                []
+                                            )
+                                            []
+                                    )
+                    , test "requires default variant" <|
+                        \_ ->
+                            "{$count ->\n  [zero] You have no messages\n  [one] You have a message\n}"
+                                |> Parser.run P.requiredPattern
+                                |> expectErrorCode "E0010"
+                    , test "default variant doesn't have to be the last one" <|
+                        \_ ->
+                            "{$count ->\n  [zero] You have no messages\n  *[other] You have {$count} messages\n  [one] You have a message\n }"
+                                |> Parser.run P.requiredPattern
+                                |> Expect.equal
+                                    (Ok <|
+                                        P.Pattern
+                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
+                                                [ P.Variant
+                                                    (P.Identifier "zero")
+                                                    (P.Pattern (P.TextElement "You have no messages") [])
+                                                ]
+                                                (P.Variant
+                                                    (P.Identifier "other")
+                                                    (P.Pattern
+                                                        (P.TextElement "You have ")
+                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
+                                                        , P.TextElement " messages"
+                                                        ]
+                                                    )
+                                                )
+                                                [ P.Variant
+                                                    (P.Identifier "one")
+                                                    (P.Pattern (P.TextElement "You have a message") [])
+                                                ]
+                                            )
+                                            []
+                                    )
+                    , test "default variant can be the first one" <|
+                        \_ ->
+                            "{$count ->\n  *[other] You have {$count} messages\n  [one] You have a message\n  }"
+                                |> Parser.run P.requiredPattern
+                                |> Expect.equal
+                                    (Ok <|
+                                        P.Pattern
+                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
+                                                []
+                                                (P.Variant
+                                                    (P.Identifier "other")
+                                                    (P.Pattern
+                                                        (P.TextElement "You have ")
+                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
+                                                        , P.TextElement " messages"
+                                                        ]
+                                                    )
+                                                )
+                                                [ P.Variant
+                                                    (P.Identifier "one")
+                                                    (P.Pattern (P.TextElement "You have a message") [])
+                                                ]
+                                            )
+                                            []
+                                    )
+                    , test "nested indentation" <|
+                        \_ ->
+                            "\n  {$count ->\n    *[other]\n      You have\n       {$count}\n      messages\n    [one]     You have a message\n }"
+                                |> Parser.run P.requiredPattern
+                                |> Expect.equal
+                                    (Ok
+                                        (P.Pattern
+                                            (P.SelectExpression
+                                                (P.VariableReference (P.Identifier "count"))
+                                                []
+                                                (P.Variant (P.Identifier "other")
+                                                    (P.Pattern (P.TextElement "You have\n ")
+                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
+                                                        , P.TextElement "\nmessages"
+                                                        ]
+                                                    )
+                                                )
+                                                [ P.Variant (P.Identifier "one")
+                                                    (P.Pattern (P.TextElement "You have a message") [])
+                                                ]
+                                            )
+                                            []
+                                        )
+                                    )
+                    , test "select on a term's attribute" <|
+                        \_ ->
+                            "{-company.employees ->\n [one] One employee\n *[other] {$count} employees\n }"
+                                |> Parser.run P.requiredPattern
+                                |> Expect.equal
+                                    (Ok
+                                        (P.Pattern
+                                            (P.SelectExpression
+                                                (P.TermReference
+                                                    (P.Identifier "company")
+                                                    (Just (P.Identifier "employees"))
+                                                    P.noArguments
+                                                )
+                                                [ P.Variant
+                                                    (P.Identifier "one")
+                                                    (P.Pattern (P.TextElement "One employee") [])
+                                                ]
+                                                (P.Variant
+                                                    (P.Identifier "other")
+                                                    (P.Pattern
+                                                        (P.InlineExpression (P.VariableReference (P.Identifier "count")))
+                                                        [ P.TextElement " employees"
+                                                        ]
+                                                    )
+                                                )
+                                                []
+                                            )
+                                            []
+                                        )
+                                    )
+                    , test "message references cannot be used as selectors" <|
+                        \_ ->
+                            "{employees ->\n [one] One employee\n *[other] {$count} employees\n }"
+                                |> Parser.run P.requiredPattern
+                                |> expectErrorCode "E0016"
+                    , test "terms cannot be used as selectors" <|
+                        \_ ->
+                            "{-employees ->\n [one] One employee\n *[other] {$count} employees\n }"
+                                |> Parser.run P.requiredPattern
+                                |> expectErrorCode "E0017"
+                    , test "attributes of messages cannot be used as selectors" <|
+                        \_ ->
+                            "{company.employees ->\n [one] One employee\n *[other] {$count} employees\n }"
+                                |> Parser.run P.requiredPattern
+                                |> expectErrorCode "E0018"
+                    ]
+                ]
+            ]
+        , describe "Identifier"
             [ test "supports alpha" <|
                 \_ ->
                     "hello"
@@ -225,394 +708,6 @@ suite =
                                 )
                 ]
             ]
-        , describe "Pattern" <|
-            let
-                justText : String -> Result e P.Pattern
-                justText value =
-                    Ok <| P.Pattern (P.TextElement value) []
-            in
-            [ test "fails if empty" <|
-                \_ ->
-                    ""
-                        |> failsToParse P.pattern
-            , test "fails if only whitespace" <|
-                \_ ->
-                    "\n\n  \n"
-                        |> failsToParse P.pattern
-            , test "parses simple text" <|
-                \_ ->
-                    "Hello, World!"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "Hello, World!")
-            , test "keeps newlines that are directly followed by another newline" <|
-                \_ ->
-                    "lorem\n\n\n ipsum"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "lorem\n\n\nipsum")
-            , test "parses two lines" <|
-                \_ ->
-                    "lorem\n ipsum"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "lorem\nipsum")
-            , test "parses multiple aligned lines" <|
-                \_ ->
-                    "lorem\n ipsum\n dolor"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "lorem\nipsum\ndolor")
-            , test "ignore spaces and newlines at the end" <|
-                \_ ->
-                    "Hello, World! \n\n  "
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "Hello, World!")
-            , test "ignores all newlines before the first element" <|
-                \_ ->
-                    "\n\n  \n lorem\n ipsum"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "lorem\nipsum")
-            , test "ignore spaces in lines containing only spaces" <|
-                \_ ->
-                    "\n  lorem\n    \n  ipsum"
-                        |> Parser.run P.pattern
-                        |> Expect.equal (justText "lorem\n\nipsum")
-            , describe "Special"
-                [ test "stops if there is no space after newline" <|
-                    \_ ->
-                        "lorem\nipsum"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "lorem")
-                , test "stops when it finds a closing brace after a newline" <|
-                    \_ ->
-                        "lorem\n }"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "lorem")
-                , test "stops when it finds a square bracket (variant) after a newline" <|
-                    \_ ->
-                        "lorem\n [1, 2, 3"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "lorem")
-                , test "supports square brackets in the middle of a line" <|
-                    \_ ->
-                        "\n I'm tired [sigh]."
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "I'm tired [sigh].")
-                , test "supports starting with a square bracket on the first line" <|
-                    \_ ->
-                        "[1, 2, 3]" |> Parser.run P.pattern |> Expect.equal (justText "[1, 2, 3]")
-                , test "stops when it finds a star (default variant) after a newline" <|
-                    \_ ->
-                        "Shopping list:\n * Milk\n * Eggs"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "Shopping list:")
-                , test "supports stars in the middle of a line" <|
-                    \_ ->
-                        "\n That was **amazing**."
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "That was **amazing**.")
-                , test "supports starting with star on the first line" <|
-                    \_ ->
-                        "*magic*" |> Parser.run P.pattern |> Expect.equal (justText "*magic*")
-                , test "stops when it finds a period (attribute) after a newline" <|
-                    \_ ->
-                        "lorem\n .txt"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "lorem")
-                , test "supports periods in the middle of a line" <|
-                    \_ ->
-                        "\n Hi. How are you?"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "Hi. How are you?")
-                , test "supports starting with period on the first line" <|
-                    \_ ->
-                        ".txt" |> Parser.run P.pattern |> Expect.equal (justText ".txt")
-                ]
-            , describe "Indentation"
-                [ test "starting in first line" <|
-                    \_ ->
-                        "lorem\n ipsum\n  dolor"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText "lorem\nipsum\n dolor")
-                , test "starting in second line" <|
-                    \_ ->
-                        "\n    lorem\n    ipsum\n     dolor\n   sit"
-                            |> Parser.run P.pattern
-                            |> Expect.equal (justText " lorem\n ipsum\n  dolor\nsit")
-                , test "with placeables" <|
-                    \_ ->
-                        "\n    You have\n      {$count}\n      messages"
-                            |> Parser.run P.pattern
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Pattern (P.TextElement "You have\n  ")
-                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
-                                        , P.TextElement "\n  messages"
-                                        ]
-                                )
-                ]
-            , describe "Placeable" <|
-                [ test "parses inside braces" <|
-                    \_ ->
-                        "{$name}"
-                            |> Parser.run P.pattern
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Pattern
-                                        (P.InlineExpression <|
-                                            P.VariableReference <|
-                                                P.Identifier "name"
-                                        )
-                                        []
-                                )
-                , test "surrounding spaces are allowed" <|
-                    \_ ->
-                        "{ $name   }"
-                            |> Parser.run P.pattern
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Pattern
-                                        (P.InlineExpression <|
-                                            P.VariableReference <|
-                                                P.Identifier "name"
-                                        )
-                                        []
-                                )
-                , test "supports braces inside string literals" <|
-                    \_ ->
-                        "{\"{}\"}"
-                            |> Parser.run P.pattern
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Pattern
-                                        (P.InlineExpression <|
-                                            P.Literal <|
-                                                P.String "{}"
-                                        )
-                                        []
-                                )
-                , describe "SelectExpression"
-                    [ test "parses" <|
-                        \_ ->
-                            "{$count ->\n  [zero] You have no messages\n  [one] You have a message\n  *[other] You have {$count} messages\n}"
-                                |> Parser.run P.pattern
-                                |> Expect.equal
-                                    (Ok <|
-                                        P.Pattern
-                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
-                                                [ P.Variant
-                                                    (P.Identifier "zero")
-                                                    (P.Pattern (P.TextElement "You have no messages") [])
-                                                , P.Variant
-                                                    (P.Identifier "one")
-                                                    (P.Pattern (P.TextElement "You have a message") [])
-                                                ]
-                                                (P.Variant
-                                                    (P.Identifier "other")
-                                                    (P.Pattern
-                                                        (P.TextElement "You have ")
-                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
-                                                        , P.TextElement " messages"
-                                                        ]
-                                                    )
-                                                )
-                                                []
-                                            )
-                                            []
-                                    )
-                    , test "requires default variant" <|
-                        \_ ->
-                            "{$count ->\n  [zero] You have no messages\n  [one] You have a message\n}"
-                                |> Parser.run P.pattern
-                                |> expectErrorCode "E0010"
-                    , test "default variant doesn't have to be the last one" <|
-                        \_ ->
-                            "{$count ->\n  [zero] You have no messages\n  *[other] You have {$count} messages\n  [one] You have a message\n }"
-                                |> Parser.run P.pattern
-                                |> Expect.equal
-                                    (Ok <|
-                                        P.Pattern
-                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
-                                                [ P.Variant
-                                                    (P.Identifier "zero")
-                                                    (P.Pattern (P.TextElement "You have no messages") [])
-                                                ]
-                                                (P.Variant
-                                                    (P.Identifier "other")
-                                                    (P.Pattern
-                                                        (P.TextElement "You have ")
-                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
-                                                        , P.TextElement " messages"
-                                                        ]
-                                                    )
-                                                )
-                                                [ P.Variant
-                                                    (P.Identifier "one")
-                                                    (P.Pattern (P.TextElement "You have a message") [])
-                                                ]
-                                            )
-                                            []
-                                    )
-                    , test "default variant can be the first one" <|
-                        \_ ->
-                            "{$count ->\n  *[other] You have {$count} messages\n  [one] You have a message\n  }"
-                                |> Parser.run P.pattern
-                                |> Expect.equal
-                                    (Ok <|
-                                        P.Pattern
-                                            (P.SelectExpression (P.VariableReference (P.Identifier "count"))
-                                                []
-                                                (P.Variant
-                                                    (P.Identifier "other")
-                                                    (P.Pattern
-                                                        (P.TextElement "You have ")
-                                                        [ P.InlineExpression (P.VariableReference (P.Identifier "count"))
-                                                        , P.TextElement " messages"
-                                                        ]
-                                                    )
-                                                )
-                                                [ P.Variant
-                                                    (P.Identifier "one")
-                                                    (P.Pattern (P.TextElement "You have a message") [])
-                                                ]
-                                            )
-                                            []
-                                    )
-                    , todo "references to messages and attributes"
-                    , todo "nested indentation"
-                    ]
-                ]
-            ]
-        , describe "Entry"
-            [ describe "Message"
-                [ test "parses" <|
-                    \_ ->
-                        "welcome-home = Welcome home, {$name}!"
-                            |> Parser.run P.entry
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Message Nothing
-                                        (P.Identifier "welcome-home")
-                                        (P.ValueMessage
-                                            (P.Pattern
-                                                (P.TextElement "Welcome home, ")
-                                                [ P.InlineExpression <|
-                                                    P.VariableReference <|
-                                                        P.Identifier "name"
-                                                , P.TextElement "!"
-                                                ]
-                                            )
-                                            []
-                                        )
-                                )
-                , test "ignores spaces around equal sign" <|
-                    \_ ->
-                        "hi    =  Hi"
-                            |> Parser.run P.entry
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Message Nothing
-                                        (P.Identifier "hi")
-                                        (P.ValueMessage
-                                            (P.Pattern (P.TextElement "Hi") [])
-                                            []
-                                        )
-                                )
-                , todo "attributes"
-                ]
-            , describe "Term"
-                [ test "supports patterns" <|
-                    \_ ->
-                        "-brand-name = Fluent"
-                            |> Parser.run P.entry
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Term Nothing
-                                        (P.Identifier "brand-name")
-                                        (P.Pattern (P.TextElement "Fluent") [])
-                                        []
-                                )
-                , test "supports attributes" <|
-                    \_ ->
-                        "-company = Google\n.parent = Alphabet\n  .full = Alphabet Inc."
-                            |> Parser.run P.entry
-                            |> Expect.equal
-                                (Ok <|
-                                    P.Term Nothing
-                                        (P.Identifier "company")
-                                        (P.Pattern (P.TextElement "Google") [])
-                                        [ P.Attribute (P.Identifier "parent")
-                                            (P.Pattern (P.TextElement "Alphabet") [])
-                                        , P.Attribute (P.Identifier "full")
-                                            (P.Pattern (P.TextElement "Alphabet Inc.") [])
-                                        ]
-                                )
-                , test "requires pattern even if attribute is provided" <|
-                    \_ ->
-                        "-company =\n.parent = Alphabet\n  .full = Alphabet Inc."
-                            |> Parser.run P.entry
-                            |> Expect.err
-                ]
-            , test "supports comments" <|
-                \_ ->
-                    "# Say hello to user\nhi = Hi"
-                        |> Parser.run P.entry
-                        |> Expect.equal
-                            (Ok <|
-                                P.Message (Just "Say hello to user")
-                                    (P.Identifier "hi")
-                                    (P.ValueMessage
-                                        (P.Pattern (P.TextElement "Hi") [])
-                                        []
-                                    )
-                            )
-            , test "joins comment lines" <|
-                \_ ->
-                    "# Say hello to user\n# in a casual manner,\n#  without getting too formal\n-hi = Hi"
-                        |> Parser.run P.entry
-                        |> Expect.equal
-                            (Ok <|
-                                P.Term (Just "Say hello to user\nin a casual manner,\n without getting too formal")
-                                    (P.Identifier "hi")
-                                    (P.Pattern (P.TextElement "Hi") [])
-                                    []
-                            )
-            , describe "ResourceComment"
-                [ test "parses single line" <|
-                    \_ ->
-                        "### Resource Comment"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.ResourceComment "Resource Comment")
-                , test "parses multiple lines" <|
-                    \_ ->
-                        "### The quick brown fox\n### jumped over the lazy dog"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.ResourceComment "The quick brown fox\njumped over the lazy dog")
-                ]
-            , describe "GroupComment"
-                [ test "parses single line" <|
-                    \_ ->
-                        "## Group Comment"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.GroupComment "Group Comment")
-                , test "parses multiple lines" <|
-                    \_ ->
-                        "## The quick brown fox\n## jumped over the lazy dog"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.GroupComment "The quick brown fox\njumped over the lazy dog")
-                ]
-            , describe "StandloneComment"
-                [ test "parses single line" <|
-                    \_ ->
-                        "# Standalone Comment"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.StandaloneComment "Standalone Comment")
-                , test "parses multiple lines" <|
-                    \_ ->
-                        "# The quick brown fox\n# jumped over the lazy dog"
-                            |> Parser.run P.entry
-                            |> Expect.equal (Ok <| P.StandaloneComment "The quick brown fox\njumped over the lazy dog")
-                ]
-            ]
-        , todo "multiple entries"
-        , todo "junk"
         ]
 
 

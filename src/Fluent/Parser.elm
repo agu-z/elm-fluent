@@ -78,15 +78,28 @@ message comment =
         |. spaces
         |. symbol "="
         |. sameLineSpaces
-        |= oneOf
-            [ succeed ValueMessage
-                |= pattern
-                |= listOf attribute
-            , succeed identity
-                |. spaces
-                |= nonEmptyList AttributeMessage attribute
-            , problem "Expected message to have a value or attributes"
-            ]
+        |= messageDefinition
+
+
+messageDefinition : Parser MessageDefinition
+messageDefinition =
+    succeed Tuple.pair
+        |= optionalPattern
+        |= listOf attribute
+        |> andThen buildMessageDefinition
+
+
+buildMessageDefinition : ( List PatternElement, List Attribute ) -> Parser MessageDefinition
+buildMessageDefinition found =
+    case found of
+        ( head :: tail, attributes ) ->
+            succeed (ValueMessage (Pattern head tail) attributes)
+
+        ( [], head :: tail ) ->
+            succeed (AttributeMessage head tail)
+
+        ( [], [] ) ->
+            problem "E0005: Expected message to have a value or attributes"
 
 
 term : EntryComment -> Parser Entry
@@ -97,7 +110,7 @@ term comment =
         |. spaces
         |. symbol "="
         |. sameLineSpaces
-        |= pattern
+        |= requiredPattern
         |= listOf attribute
 
 
@@ -114,7 +127,7 @@ attribute =
         |. spaces
         |. symbol "="
         |. sameLineSpaces
-        |= pattern
+        |= requiredPattern
 
 
 type alias EntryComment =
@@ -183,8 +196,19 @@ type PatternElement
     | TextElement String
 
 
-pattern : Parser Pattern
-pattern =
+optionalPattern : Parser (List PatternElement)
+optionalPattern =
+    loop
+        { elements = []
+        , seenLines = ""
+        , seenSpaces = ""
+        , minIndent = Nothing
+        }
+        patternStep
+
+
+requiredPattern : Parser Pattern
+requiredPattern =
     let
         finish items =
             case items of
@@ -194,13 +218,7 @@ pattern =
                 head :: tail ->
                     succeed (Pattern head tail)
     in
-    loop
-        { elements = []
-        , seenLines = ""
-        , seenSpaces = ""
-        , minIndent = Nothing
-        }
-        patternStep
+    optionalPattern
         |> andThen finish
 
 
@@ -377,8 +395,9 @@ placeable =
 
 selectExpression : InlineExpression -> Parser PatternElement
 selectExpression expr =
-    succeed (SelectExpression expr)
+    succeed SelectExpression
         |. symbol " ->"
+        |= selector expr
         |. spaces
         |= listOf variant
         |. oneOf
@@ -387,6 +406,22 @@ selectExpression expr =
             ]
         |= variant
         |= listOf variant
+
+
+selector : InlineExpression -> Parser InlineExpression
+selector expr =
+    case expr of
+        MessageReference _ Nothing ->
+            problem "E0016: Message references cannot be used as selectors"
+
+        TermReference _ Nothing _ ->
+            problem "E0017: Terms cannot be used as selectors"
+
+        MessageReference _ (Just _) ->
+            problem "E0018: Attributes of messages cannot be used as selectors"
+
+        _ ->
+            succeed expr
 
 
 type Variant
@@ -400,7 +435,7 @@ variant =
         |= identifier
         |. symbol "]"
         |. sameLineSpaces
-        |= pattern
+        |= requiredPattern
         |. spaces
 
 
@@ -418,18 +453,15 @@ inlineExpression =
         [ succeed identity
             |. symbol "-"
             |= oneOf
-                [ unsignedNumber |> map (negate >> Number >> Literal)
-                , succeed TermReference
+                [ succeed TermReference
                     |= identifier
                     |= attributeAccessor
                     |= oneOf
                         [ callArguments
                         , succeed noArguments
                         ]
+                , unsignedNumber |> map (negate >> Number >> Literal)
                 ]
-        , unsignedNumber |> map (Number >> Literal)
-        , stringLiteral |> map Literal
-        , variableReference
         , identifier
             |> andThen
                 (\id ->
@@ -439,6 +471,9 @@ inlineExpression =
                             |= attributeAccessor
                         ]
                 )
+        , unsignedNumber |> map (Number >> Literal)
+        , stringLiteral |> map Literal
+        , variableReference
         ]
 
 
