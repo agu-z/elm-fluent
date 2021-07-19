@@ -1,4 +1,4 @@
-module Tests.Parser exposing (..)
+module ParserTests exposing (..)
 
 import Expect
 import Fluent.Parser exposing (..)
