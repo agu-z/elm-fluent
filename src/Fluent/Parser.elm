@@ -13,6 +13,7 @@ import Parser
         , float
         , getChompedString
         , int
+        , lineComment
         , loop
         , map
         , oneOf
@@ -32,7 +33,11 @@ type Resource
 
 resource : Parser Resource
 resource =
-    listOf entry
+    listOf
+        (succeed identity
+            |. spaces
+            |= entry
+        )
         |> map Resource
 
 
@@ -144,7 +149,7 @@ optionalComment count =
     let
         line : Parser String
         line =
-            (Parser.lineComment (String.repeat count "#")
+            (lineComment (String.repeat count "#")
                 |> getChompedString
                 |> map (String.dropLeft <| count + 1)
             )
@@ -235,14 +240,9 @@ patternStep :
     -> Parser (Step PatternState (List PatternElement))
 patternStep state =
     oneOf
-        [ succeed identity
-            |. symbol "\n"
-            |= oneOf
-                [ succeed (rememberPatternNewLines state)
-                    |= zeroOrMore ((==) '\n')
-                    |= oneOrMore ((==) ' ')
-                , succeed () |> map (\_ -> finishPattern state)
-                ]
+        [ succeed (rememberLinesAndSpaces state)
+            |= oneOrMore ((==) '\n')
+            |= zeroOrMore ((==) ' ')
         , placeable
             |> map (addPatternElement state)
         , succeed ()
@@ -251,7 +251,6 @@ patternStep state =
                     textChunkValid
 
                  else
-                    -- Disable starting with "}", "[", "*", or "."  after the first line
                     \c -> c /= '[' && c /= '*' && c /= '.' && textChunkValid c
                 )
             |. chompWhile textChunkValid
@@ -266,13 +265,18 @@ textChunkValid c =
     c /= '\n' && c /= '{' && c /= '}'
 
 
-rememberPatternNewLines : PatternState -> String -> String -> Step PatternState (List PatternElement)
-rememberPatternNewLines state lines spaces =
-    Loop
-        { state
-            | seenLines = state.seenLines ++ "\n" ++ lines
-            , seenSpaces = spaces
-        }
+rememberLinesAndSpaces : PatternState -> String -> String -> Step PatternState (List PatternElement)
+rememberLinesAndSpaces state lines spaces =
+    if String.isEmpty spaces then
+        -- If we don't find any spaces after a newline, we're done
+        finishPattern state
+
+    else
+        Loop
+            { state
+                | seenLines = state.seenLines ++ lines
+                , seenSpaces = spaces
+            }
 
 
 addPatternElement : PatternState -> PatternElement -> Step PatternState (List PatternElement)
@@ -360,10 +364,23 @@ alignPattern indent remaining done =
 
                 aligned : String
                 aligned =
-                    text
-                        |> String.lines
-                        |> List.map alignLine
-                        |> String.join "\n"
+                    case ( String.lines text, rest ) of
+                        ( lines, [] ) ->
+                            lines
+                                |> List.map alignLine
+                                |> String.join "\n"
+
+                        ( fst :: snd :: tail, _ ) ->
+                            fst
+                                ++ "\n"
+                                ++ (snd
+                                        :: tail
+                                        |> List.map alignLine
+                                        |> String.join "\n"
+                                   )
+
+                        _ ->
+                            text
             in
             if String.isEmpty aligned then
                 -- Skip elements that are empty after alignment
