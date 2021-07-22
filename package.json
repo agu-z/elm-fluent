@@ -1,6 +1,12 @@
 {
+  "name": "elm-fluent",
+  "scripts": {
+    "test": "elm-test",
+    "review": "elm-review"
+  },
   "devDependencies": {
     "elm-format": "^0.8.5",
+    "elm-review": "^2.5.3",
     "elm-test": "^0.19.1-revision7"
   }
 }

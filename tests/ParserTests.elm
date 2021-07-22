@@ -1,64 +1,30 @@
-module ParserTests exposing (..)
+module ParserTests exposing (suite)
 
 import Expect
-import Fluent.Parser exposing (..)
+import Fluent.Parser
+    exposing
+        ( Attribute(..)
+        , CallArguments
+        , Entry(..)
+        , Identifier(..)
+        , InlineExpression(..)
+        , Literal(..)
+        , MessageDefinition(..)
+        , Pattern(..)
+        , PatternElement(..)
+        , Resource(..)
+        , Variant(..)
+        , entry
+        , identifier
+        , inlineExpression
+        , literal
+        , noArguments
+        , requiredPattern
+        , resource
+        , variableReference
+        )
 import Parser
-import Test exposing (..)
-
-
-failsToParse : Parser.Parser a -> String -> Expect.Expectation
-failsToParse parser =
-    Parser.run parser >> Expect.err
-
-
-expectErrorCode : String -> Result (List Parser.DeadEnd) a -> Expect.Expectation
-expectErrorCode code result =
-    case result of
-        Ok _ ->
-            Expect.fail "Result was Ok"
-
-        Err errors ->
-            let
-                test { problem } =
-                    case problem of
-                        Parser.Problem message ->
-                            String.startsWith code message
-
-                        _ ->
-                            False
-            in
-            if List.any test errors then
-                Expect.pass
-
-            else
-                Expect.fail ("Result did not include error code: " ++ code)
-
-
-testResource : String
-testResource =
-    """
-## Closing tabs
-
-tabs-close-button = Close
-tabs-close-tooltip = {$tabCount ->
-    [one] Close {$tabCount} tab
-   *[other] Close {$tabCount} tabs
-}
-tabs-close-warning =
-    You are about to close {$tabCount} tabs.
-    Are you sure you want to continue?
-
-## Syncing
-
--sync-brand-name = Firefox Account
-
-sync-dialog-title = {-sync-brand-name}
-sync-headline-title =
-    {-sync-brand-name}: The best way to bring
-    your data always with you
-sync-signedout-title =
-    Connect with your {-sync-brand-name}
-"""
+import Test exposing (Test, describe, test)
 
 
 suite : Test
@@ -908,3 +874,58 @@ testCallArguments prefix expecting =
                 |> Parser.run inlineExpression
                 |> expectErrorCode "E0021"
     ]
+
+
+failsToParse : Parser.Parser a -> String -> Expect.Expectation
+failsToParse parser =
+    Parser.run parser >> Expect.err
+
+
+expectErrorCode : String -> Result (List Parser.DeadEnd) a -> Expect.Expectation
+expectErrorCode code result =
+    case result of
+        Ok _ ->
+            Expect.fail "Result was Ok"
+
+        Err errors ->
+            let
+                test { problem } =
+                    case problem of
+                        Parser.Problem message ->
+                            String.startsWith code message
+
+                        _ ->
+                            False
+            in
+            if List.any test errors then
+                Expect.pass
+
+            else
+                Expect.fail ("Result did not include error code: " ++ code)
+
+
+testResource : String
+testResource =
+    """
+## Closing tabs
+
+tabs-close-button = Close
+tabs-close-tooltip = {$tabCount ->
+    [one] Close {$tabCount} tab
+   *[other] Close {$tabCount} tabs
+}
+tabs-close-warning =
+    You are about to close {$tabCount} tabs.
+    Are you sure you want to continue?
+
+## Syncing
+
+-sync-brand-name = Firefox Account
+
+sync-dialog-title = {-sync-brand-name}
+sync-headline-title =
+    {-sync-brand-name}: The best way to bring
+    your data always with you
+sync-signedout-title =
+    Connect with your {-sync-brand-name}
+"""

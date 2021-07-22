@@ -1,4 +1,24 @@
-module Fluent.Parser exposing (..)
+module Fluent.Parser exposing
+    ( Attribute(..)
+    , CallArguments
+    , Entry(..)
+    , Identifier(..)
+    , InlineExpression(..)
+    , Literal(..)
+    , MessageDefinition(..)
+    , Pattern(..)
+    , PatternElement(..)
+    , Resource(..)
+    , Variant(..)
+    , entry
+    , identifier
+    , inlineExpression
+    , literal
+    , noArguments
+    , requiredPattern
+    , resource
+    , variableReference
+    )
 
 import Parser
     exposing
@@ -300,7 +320,7 @@ addPatternElement state element =
                     ( _, (TextElement previous) :: rest ) ->
                         element :: TextElement (previous ++ state.seenLines ++ state.seenSpaces) :: rest
 
-                    ( _, _ ) ->
+                    _ ->
                         element :: TextElement (state.seenLines ++ state.seenSpaces) :: state.elements
             , seenLines = ""
             , seenSpaces = ""
@@ -652,7 +672,7 @@ stringStep revChunks =
                     |= unicode 6
                 ]
         , token "\""
-            |> map (\_ -> Done (String.join "" (List.reverse revChunks)))
+            |> map (\_ -> Done (String.concat (List.reverse revChunks)))
         , chompWhile (\c -> c /= '\\' && c /= '"')
             |> getChompedString
             |> map (\chunk -> Loop (chunk :: revChunks))
@@ -741,20 +761,6 @@ listOf item =
                 ]
     in
     loop [] step
-
-
-nonEmptyList : (a -> List a -> b) -> Parser a -> Parser b
-nonEmptyList tag item =
-    let
-        finish items =
-            case items of
-                head :: tail ->
-                    succeed (tag head tail)
-
-                _ ->
-                    problem "Expected at least one"
-    in
-    listOf item |> andThen finish
 
 
 {-| Like Parser.spaces but doesn't allow new lines or carriage returns
