@@ -1,7 +1,7 @@
 module ParserTests exposing (suite)
 
 import Expect
-import Fluent.Parser
+import Fluent.Language
     exposing
         ( Attribute(..)
         , CallArguments

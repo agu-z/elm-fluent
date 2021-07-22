@@ -23,7 +23,7 @@ import NoUnused.Parameters
 import NoUnused.Patterns
 import NoUnused.Variables
 import NoDebug.Log
-import NoDebug.TodoOrToString
+--import NoDebug.TodoOrToString
 import Simplify
 import NoUnoptimizedRecursion
 import Review.Rule exposing (Rule)
@@ -43,7 +43,8 @@ config =
     , NoUnused.Patterns.rule
     , NoUnused.Variables.rule
     , NoDebug.Log.rule
-    , NoDebug.TodoOrToString.rule
+    -- I'll enable this before shipping v1
+    --, NoDebug.TodoOrToString.rule
     , Simplify.rule Simplify.defaults
     , NoUnoptimizedRecursion.rule (NoUnoptimizedRecursion.optOutWithComment "IGNORE TCO")
     ] 

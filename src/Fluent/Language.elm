@@ -1,7 +1,8 @@
-module Fluent.Parser exposing
+module Fluent.Language exposing
     ( Attribute(..)
     , CallArguments
     , Entry(..)
+    , EntryComment
     , Identifier(..)
     , InlineExpression(..)
     , Literal(..)
