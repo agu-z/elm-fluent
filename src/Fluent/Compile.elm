@@ -7,6 +7,8 @@ import Fluent.Language
         ( Entry(..)
         , EntryComment
         , Identifier(..)
+        , InlineExpression(..)
+        , Literal(..)
         , MessageDefinition(..)
         , Pattern(..)
         , PatternElement(..)
@@ -165,5 +167,24 @@ patternElement element =
         TextElement text ->
             G.string text
 
+        InlineExpression (Literal (Number value)) ->
+            G.apply [ G.fun "formatNumber", G.float value ]
+
+        InlineExpression expr ->
+            inlineExpression expr
+
         _ ->
             Debug.todo "other elements"
+
+
+inlineExpression : InlineExpression -> G.Expression
+inlineExpression expr =
+    case expr of
+        Literal (Number value) ->
+            G.float value
+
+        Literal (String value) ->
+            G.string value
+
+        _ ->
+            Debug.todo "other inline expressions"

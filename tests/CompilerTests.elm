@@ -20,8 +20,7 @@ suite =
 inbox = Inbox
 
 # Outgoing emails section
-outbox = Outbox
-
+outbox = Outbox ({120})
 
 ## Feature Demo
 ## Examples of different kinds of email
@@ -44,12 +43,17 @@ roadmap-email-example =
   
   Talk to you tomorrow!
 
+## Shortcuts
+
+go-back = 
+  Use Cmd+{"{"} to go back
+
 
 """
                 |> Parser.run Parse.resource
                 |> Result.map (Compile.resource [ "Es" ])
                 |> Expect.equal (Ok <| String.trimLeft """
-module Es exposing (inbox, outbox, roadmapEmailExample)
+module Es exposing (goBack, inbox, outbox, roadmapEmailExample)
 
 
 {-| Translations for email client
@@ -76,7 +80,7 @@ inbox =
 -}
 outbox : String
 outbox =
-    "Outbox"
+    "Outbox (" ++ formatNumber 120 ++ ")"
 
 
 ------------------------------------------
@@ -97,4 +101,14 @@ Make sure to display our markdown capabilities.
 roadmapEmailExample : String
 roadmapEmailExample =
     "Hi! Here's the roadmap for next year.\\n\\nJanuary:\\n  - Login flow\\n  - Account creation \\n\\nFebruary:\\n  - Products page\\n  - Referrals\\n\\nTalk to you tomorrow!"
+
+
+---------------
+-- Shortcuts --
+---------------
+
+
+goBack : String
+goBack =
+    "Use Cmd+" ++ "{" ++ " to go back"
 """)
