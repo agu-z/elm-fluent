@@ -1,6 +1,5 @@
 module CompilerTests exposing (suite)
 
-import Elm.Pretty
 import Expect
 import Fluent.Compile as Compile
 import Fluent.Language as Parse
@@ -13,14 +12,26 @@ suite =
     test "compiles to Elm" <|
         \_ ->
             """
+### Translations for email client
 
-# Great the user
-hi = Hola
+## Tabs
+
+# Incoming emails section
+inbox = Inbox
+
+# Outgoing emails section
+outbox = Outbox
+
+
+## Feature Demo
+## Examples of different kinds of email
+
+# Make sure to display multi-line messages with white-space: pre
 
 # An email example.
 #
 # Make sure to display our markdown capabilities.
-email-example = 
+roadmap-email-example = 
   Hi! Here's the roadmap for next year.
 
   January:
@@ -32,22 +43,49 @@ email-example =
     - Referrals
   
   Talk to you tomorrow!
+
+
 """
                 |> Parser.run Parse.resource
                 |> Result.map (Compile.resource [ "Es" ])
-                |> Result.map (Elm.Pretty.pretty 2)
                 |> Expect.equal (Ok <| String.trimLeft """
-module Es exposing (emailExample, hi)
+module Es exposing (inbox, outbox, roadmapEmailExample)
 
 
-{-| Great the user
+{-| Translations for email client
+-}
+
+
+----------
+-- Tabs --
+----------
+
+
+{-| Incoming emails section
 
 
 -}
-hi :
-    String
-hi =
-    "Hola"
+inbox : String
+inbox =
+    "Inbox"
+
+
+{-| Outgoing emails section
+
+
+-}
+outbox : String
+outbox =
+    "Outbox"
+
+
+------------------------------------------
+-- Feature Demo                         --
+-- Examples of different kinds of email --
+------------------------------------------
+
+
+-- Make sure to display multi-line messages with white-space: pre
 
 
 {-| An email example.
@@ -56,8 +94,7 @@ Make sure to display our markdown capabilities.
 
 
 -}
-emailExample :
-    String
-emailExample =
+roadmapEmailExample : String
+roadmapEmailExample =
     "Hi! Here's the roadmap for next year.\\n\\nJanuary:\\n  - Login flow\\n  - Account creation \\n\\nFebruary:\\n  - Products page\\n  - Referrals\\n\\nTalk to you tomorrow!"
 """)
