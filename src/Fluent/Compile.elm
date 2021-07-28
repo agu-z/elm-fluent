@@ -168,7 +168,10 @@ patternElement element =
             G.string text
 
         InlineExpression (Literal (Number value)) ->
-            G.apply [ G.fun "formatNumber", G.float value ]
+            G.apply
+                [ G.fqFun [ "V" ] "format"
+                , G.parens (G.apply [ G.fqFun [ "V" ] "float", G.float value ])
+                ]
 
         InlineExpression expr ->
             inlineExpression expr

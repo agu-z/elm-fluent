@@ -80,7 +80,7 @@ inbox =
 -}
 outbox : String
 outbox =
-    "Outbox (" ++ formatNumber 120 ++ ")"
+    "Outbox (" ++ V.format (V.float 120) ++ ")"
 
 
 ------------------------------------------
