@@ -14,6 +14,8 @@ suite =
             """
 ### Translations for email client
 
+welcome = Welcome, {$name}!
+
 ## Tabs
 
 # Incoming emails section
@@ -53,11 +55,16 @@ go-back =
                 |> Parser.run Parse.resource
                 |> Result.map (Compile.resource [ "Es" ])
                 |> Expect.equal (Ok <| String.trimLeft """
-module Es exposing (goBack, inbox, outbox, roadmapEmailExample)
+module Es exposing (goBack, inbox, outbox, roadmapEmailExample, welcome)
 
 
 {-| Translations for email client
 -}
+
+
+welcome : { name : V.Value } -> String
+welcome { name } =
+    "Welcome, " ++ V.format name ++ "!"
 
 
 ----------

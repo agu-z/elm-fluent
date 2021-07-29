@@ -15,6 +15,7 @@ import Fluent.Language
         , Resource(..)
         )
 import Pretty
+import Set exposing (Set)
 import String.Case
 
 
@@ -66,21 +67,49 @@ foldEntry :
     -> ModuleState
 foldEntry value state =
     case value of
-        Message comment (Identifier name) (ValueMessage patternValue []) ->
+        Message comment id (ValueMessage patternValue []) ->
             let
-                camelCasedName : String
-                camelCasedName =
-                    String.Case.toCamelCaseLower name
+                elmName : String
+                elmName =
+                    idToString id
+
+                elmComment =
+                    entryComment comment
+
+                ( valueExpression, references ) =
+                    pattern patternValue
 
                 declaration : G.Declaration
                 declaration =
-                    G.valDecl (entryComment comment)
-                        (Just G.stringAnn)
-                        camelCasedName
-                        (pattern patternValue)
+                    if Set.isEmpty references then
+                        G.valDecl elmComment
+                            (Just G.stringAnn)
+                            elmName
+                            valueExpression
+
+                    else
+                        let
+                            refList : List String
+                            refList =
+                                Set.toList references
+
+                            annotation : G.TypeAnnotation
+                            annotation =
+                                refList
+                                    |> List.map (\name -> ( name, G.fqTyped [ "V" ] "Value" [] ))
+                                    |> G.recordAnn
+                                    |> (\arg -> G.funAnn arg G.stringAnn)
+
+                            -- TODO: Cleanup
+                        in
+                        G.funDecl (entryComment comment)
+                            (Just annotation)
+                            elmName
+                            [ G.recordPattern refList ]
+                            valueExpression
             in
             { state
-                | exposes = G.funExpose camelCasedName :: state.exposes
+                | exposes = G.funExpose elmName :: state.exposes
                 , content =
                     declaration
                         |> Elm.Pretty.prettyDeclaration 4
@@ -151,27 +180,37 @@ entryComment =
     Maybe.map (\value -> G.emptyDocComment |> G.markdown value)
 
 
-pattern : Pattern -> G.Expression
+type alias CompiledPattern =
+    ( G.Expression, Set String )
+
+
+pattern : Pattern -> CompiledPattern
 pattern (Pattern first rest) =
-    List.foldl append (patternElement first) rest
+    List.foldl appendPattern (patternElement first) rest
 
 
-append : PatternElement -> G.Expression -> G.Expression
-append b a =
-    G.applyBinOp a G.append (patternElement b)
+appendPattern : PatternElement -> CompiledPattern -> CompiledPattern
+appendPattern b ( aValue, aRefs ) =
+    let
+        ( bValue, bRefs ) =
+            patternElement b
+    in
+    ( G.applyBinOp aValue G.append bValue
+    , Set.union aRefs bRefs
+    )
 
 
-patternElement : PatternElement -> G.Expression
+patternElement : PatternElement -> CompiledPattern
 patternElement element =
     case element of
         TextElement text ->
-            G.string text
+            ( G.string text, Set.empty )
 
         InlineExpression (Literal (Number value)) ->
-            G.apply
-                [ G.fqFun [ "V" ] "format"
-                , G.parens (G.apply [ G.fqFun [ "V" ] "float", G.float value ])
-                ]
+            ( applyFormat <|
+                G.parens (G.apply [ G.fqFun [ "V" ] "float", G.float value ])
+            , Set.empty
+            )
 
         InlineExpression expr ->
             inlineExpression expr
@@ -180,14 +219,38 @@ patternElement element =
             Debug.todo "other elements"
 
 
-inlineExpression : InlineExpression -> G.Expression
+applyFormat : G.Expression -> G.Expression
+applyFormat value =
+    G.apply [ G.fqFun [ "V" ] "format", value ]
+
+
+idToString : Identifier -> String
+idToString (Identifier name) =
+    String.Case.toCamelCaseLower name
+
+
+type alias References =
+    Set String
+
+
+inlineExpression : InlineExpression -> CompiledPattern
 inlineExpression expr =
     case expr of
         Literal (Number value) ->
-            G.float value
+            ( G.float value, Set.empty )
 
         Literal (String value) ->
-            G.string value
+            ( G.string value, Set.empty )
+
+        VariableReference id ->
+            let
+                elmName : String
+                elmName =
+                    idToString id
+            in
+            ( applyFormat (G.fun elmName)
+            , Set.fromList [ elmName ]
+            )
 
         _ ->
             Debug.todo "other inline expressions"
