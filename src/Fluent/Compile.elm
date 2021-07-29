@@ -13,6 +13,7 @@ import Fluent.Language
         , Pattern(..)
         , PatternElement(..)
         , Resource(..)
+        , Variant(..)
         )
 import Pretty
 import Set exposing (Set)
@@ -97,7 +98,7 @@ foldEntry value state =
                             annotation : G.TypeAnnotation
                             annotation =
                                 refList
-                                    |> List.map (\name -> ( name, G.fqTyped [ "V" ] "Value" [] ))
+                                    |> List.map (\name -> ( name, G.stringAnn ))
                                     |> G.recordAnn
                                     |> (\arg -> G.funAnn arg G.stringAnn)
 
@@ -216,8 +217,50 @@ patternElement element =
         InlineExpression expr ->
             inlineExpression expr
 
-        _ ->
-            Debug.todo "other elements"
+        SelectExpression expr before (Variant _ defaultPattern) after ->
+            let
+                ( matchExpr, matchRefs ) =
+                    inlineExpression expr
+
+                ( defaultExpr, defaultRefs ) =
+                    pattern defaultPattern
+
+                ( cases, variantRefs ) =
+                    before
+                        ++ after
+                        |> List.foldr foldVariant
+                            ( [ ( G.allPattern
+                                , defaultExpr
+                                )
+                              ]
+                            , Set.empty
+                            )
+            in
+            ( G.caseExpr matchExpr cases
+            , matchRefs
+                |> Set.union variantRefs
+                |> Set.union defaultRefs
+            )
+
+
+foldVariant :
+    Variant
+    ->
+        ( List ( G.Pattern, G.Expression )
+        , Set String
+        )
+    ->
+        ( List ( G.Pattern, G.Expression )
+        , Set String
+        )
+foldVariant (Variant (Identifier name) patternValue) ( cases, refs ) =
+    let
+        ( expr, variantRefs ) =
+            pattern patternValue
+    in
+    ( ( G.stringPattern name, expr ) :: cases
+    , Set.union refs variantRefs
+    )
 
 
 applyFormat : G.Expression -> G.Expression
@@ -228,10 +271,6 @@ applyFormat value =
 idToString : Identifier -> String
 idToString (Identifier name) =
     String.Case.toCamelCaseLower name
-
-
-type alias References =
-    Set String
 
 
 inlineExpression : InlineExpression -> CompiledPattern
@@ -249,7 +288,7 @@ inlineExpression expr =
                 elmName =
                     idToString id
             in
-            ( applyFormat (G.fun elmName)
+            ( G.fun elmName
             , Set.fromList [ elmName ]
             )
 

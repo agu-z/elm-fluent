@@ -12,9 +12,16 @@ suite =
     test "compiles to Elm" <|
         \_ ->
             """
-### Translations for email client
+### Workflow translations
 
 welcome = Welcome, {$name}!
+
+new-task = 
+  { $priority -> 
+      [high] High priority. Drop what you're doing and address this.
+      [medium] Medium priority. Address Today. Hard deadline: {$deadline}.
+      *[low] Address before {$deadline}.
+  }
 
 ## Tabs
 
@@ -55,16 +62,29 @@ go-back =
                 |> Parser.run Parse.resource
                 |> Result.map (Compile.resource [ "Es" ])
                 |> Expect.equal (Ok <| String.trimLeft """
-module Es exposing (goBack, inbox, outbox, roadmapEmailExample, welcome)
+module Es exposing (goBack, inbox, newTask, outbox, roadmapEmailExample, welcome)
 
 
-{-| Translations for email client
+{-| Workflow translations
 -}
 
 
-welcome : { name : V.Value } -> String
+welcome : { name : String } -> String
 welcome { name } =
-    "Welcome, " ++ V.format name ++ "!"
+    "Welcome, " ++ name ++ "!"
+
+
+newTask : { deadline : String, priority : String } -> String
+newTask { deadline, priority } =
+    case priority of
+        "high" ->
+            "High priority. Drop what you're doing and address this."
+
+        "medium" ->
+            "Medium priority. Address Today. Hard deadline: " ++ deadline ++ "."
+
+        _ ->
+            "Address before " ++ deadline ++ "."
 
 
 ----------
