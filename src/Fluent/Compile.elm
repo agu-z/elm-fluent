@@ -73,6 +73,7 @@ foldEntry value state =
                 elmName =
                     idToString id
 
+                elmComment : Maybe (G.Comment G.DocComment)
                 elmComment =
                     entryComment comment
 
