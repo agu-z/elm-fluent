@@ -16,8 +16,8 @@ type Value
 format : Value -> String
 format value =
     case value of
-        Text text ->
-            text
+        Text txt ->
+            txt
 
         Number num ->
             String.fromFloat num
